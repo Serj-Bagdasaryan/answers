@@ -1,0 +1,17 @@
+SELECT
+  service_category,
+  COUNT(*) AS service_count,
+  -- средняя цена за единицу, округлённая до 2 знаков и приведённая к numeric(10,2)
+  ROUND(AVG(unit_price)::numeric, 2)::numeric(10,2) AS avg_unit_price,
+  -- максимальная сумма затрат на одну услугу (units * unit_price)
+  MAX(units * unit_price) AS max_expense,
+  -- средняя доля сооплаты (NULL -> 0), делим на 100 и округляем до 3 знаков
+  ROUND( AVG( COALESCE(copayment_percent, 0) / 100.0 ) , 3 )::numeric(10,3) AS avg_copayment_share,
+  -- доля дорогих услуг (unit_price > 500) в процентах, округлённая до 1 знака
+  ROUND( SUM( CASE WHEN unit_price > 500 THEN 1 ELSE 0 END )::numeric * 100.0 / COUNT(*) , 1 )::numeric(5,1) AS expensive_service_share
+FROM medical_expenses
+GROUP BY service_category
+ORDER BY
+  avg_unit_price DESC,          -- сначала по средней цене (убывание)
+  expensive_service_share DESC, -- затем по доле дорогих услуг (убывание)
+  service_category ASC;         -- при равенстве — по алфавиту

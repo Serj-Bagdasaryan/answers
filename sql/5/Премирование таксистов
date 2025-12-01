@@ -1,0 +1,75 @@
+WITH december_stats AS (
+    -- средняя оценка и число поездок в декабре по каждому водителю
+    SELECT
+        r.driver_id,
+        AVG(r.rating)::numeric AS avg_rating,
+        COUNT(*) AS trips
+    FROM rides r
+    WHERE EXTRACT(MONTH FROM r.start_ride) = 12
+    GROUP BY r.driver_id
+),
+
+with_tariff AS (
+    -- добавляем тариф и вычисляем коэффициент надбавки (поддерживаем рус./англ. варианты)
+    SELECT
+        d.*,
+        t.tariff,
+        CASE
+            WHEN LOWER(t.tariff) LIKE '%comfort%' OR LOWER(t.tariff) LIKE '%комфорт%' THEN 0.10
+            WHEN LOWER(t.tariff) LIKE '%business%' OR LOWER(t.tariff) LIKE '%бизнес%' THEN 0.20
+            ELSE 0.00
+        END AS tariff_coeff
+    FROM december_stats d
+    JOIN tariffs t USING (driver_id)
+),
+
+normalized AS (
+    -- считаем min/max и нормализуем min-max; если max = min, подставляем 1
+    SELECT
+        w.driver_id,
+        w.avg_rating,
+        w.trips,
+        w.tariff_coeff,
+        COALESCE(
+          (w.avg_rating - MIN(w.avg_rating) OVER ())::numeric
+          / NULLIF((MAX(w.avg_rating) OVER () - MIN(w.avg_rating) OVER ()), 0),
+          1
+        ) AS norm_rating,
+        COALESCE(
+          (w.trips - MIN(w.trips) OVER ())::numeric
+          / NULLIF((MAX(w.trips) OVER () - MIN(w.trips) OVER ()), 0),
+          1
+        ) AS norm_trips
+    FROM with_tariff w
+),
+
+scored AS (
+    -- взвешенный рейтинг и итоговый рейтинг с учётом тарифной надбавки
+    SELECT
+        n.driver_id,
+        n.avg_rating,
+        n.trips,
+        n.norm_rating,
+        n.norm_trips,
+        0.6 * n.norm_rating + 0.4 * n.norm_trips AS weighted_score,
+        (0.6 * n.norm_rating + 0.4 * n.norm_trips) * (1 + n.tariff_coeff) AS final_score
+    FROM normalized n
+),
+
+top_threshold AS (
+    -- порог: значение финального рейтинга 10-го места (если меньше 10 водителей, берём минимальный из существующих)
+    SELECT MIN(final_score) AS thresh
+    FROM (
+        SELECT final_score
+        FROM scored
+        ORDER BY final_score DESC
+        LIMIT 10
+    ) x
+)
+
+-- все водители с final_score >= thresh (включая всех с рейтингом, равным 10-му месту)
+SELECT s.driver_id
+FROM scored s
+CROSS JOIN top_threshold t
+WHERE s.final_score >= COALESCE(t.thresh, -1)   -- если нет водителей в выборке, вернёт пустой набор
+ORDER BY s.driver_id;

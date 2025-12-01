@@ -1,0 +1,19 @@
+SELECT
+    warehouse_id,
+    COUNT(operation_id) AS count_operations,
+    SUM(quantity) AS sum_quantity,
+    ROUND(AVG(processing_time) FILTER (WHERE processing_time IS NOT NULL), 0) AS avg_processing_time,
+    MAX(quantity) AS max_quantity,
+    MIN(quantity) AS min_quantity,
+    SUM(CASE WHEN operation_type = 'поставка' THEN 1 ELSE 0 END) AS supply_operations,
+    SUM(CASE WHEN operation_type = 'отгрузка' THEN 1 ELSE 0 END) AS shipment_operations,
+    SUM(CASE WHEN operation_type = 'перемещение' THEN 1 ELSE 0 END) AS transfer_operations
+FROM
+    operations
+GROUP BY
+    warehouse_id
+HAVING
+    COUNT(operation_id) > 2
+    AND ROUND(AVG(processing_time) FILTER (WHERE processing_time IS NOT NULL), 0) <= 60
+ORDER BY
+    warehouse_id ASC;

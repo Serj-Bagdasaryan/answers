@@ -1,0 +1,34 @@
+WITH period AS (
+  SELECT DATE '2025-05-03' AS start_dt, DATE '2025-06-01' AS end_dt
+),
+user_counts AS (
+  -- считаем все обращения каждого пользователя за период (включительно)
+  SELECT r.user_email,
+         COUNT(*) AS cnt
+  FROM support_requests r
+  CROSS JOIN period p
+  WHERE r.submitted_at >= p.start_dt
+    AND r.submitted_at <  p.end_dt + INTERVAL '1 day'  -- включаем end_dt
+  GROUP BY r.user_email
+  HAVING COUNT(*) > 1
+)
+SELECT
+  sr.user_email,
+  sr.request_id,
+  sr.submitted_at,
+  sr.message_text
+FROM support_requests sr
+JOIN user_counts uc USING (user_email)
+CROSS JOIN period p
+WHERE sr.submitted_at >= p.start_dt
+  AND sr.submitted_at <  p.end_dt + INTERVAL '1 day'
+  AND (
+       lower(sr.message_text) LIKE '%оплат%'
+    OR lower(sr.message_text) LIKE '%счет%'
+    OR lower(sr.message_text) LIKE '%счёт%'
+    OR lower(sr.message_text) LIKE '%ошибк%'
+    OR lower(sr.message_text) LIKE '%недоступн%'
+    OR lower(sr.message_text) LIKE '%доступ%'
+  )
+ORDER BY sr.user_email ASC,
+         sr.submitted_at DESC;

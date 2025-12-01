@@ -1,0 +1,25 @@
+WITH emp AS (
+  -- агрегируем только по заявкам с ненулевым временем обработки
+  SELECT
+    employee_id,
+    COUNT(*) AS total_tickets,
+    AVG(resolution_minutes) AS avg_resolution_min
+  FROM support_tickets
+  WHERE resolution_minutes IS NOT NULL
+  GROUP BY employee_id
+),
+avg_total AS (
+  -- среднее количество заявок на сотрудника (по сотрудникам в выборке)
+  SELECT AVG(total_tickets) AS avg_total_tickets
+  FROM emp
+)
+SELECT
+  e.employee_id,
+  e.total_tickets,
+  -- среднее время в часах, округлённое до 2 знаков и с фиксированным форматом
+  ROUND(e.avg_resolution_min / 60.0, 2)::numeric(10,2) AS avg_resolution_hr
+FROM emp e
+CROSS JOIN avg_total a
+WHERE e.total_tickets > a.avg_total_tickets         -- больше среднего по всем сотрудникам
+  AND (e.avg_resolution_min / 60.0) < 1.5           -- среднее время меньше 1.5 часа
+ORDER BY e.employee_id ASC;

@@ -1,0 +1,38 @@
+WITH filtered AS (
+  SELECT
+    review_id,
+    product_id,
+    user_id,
+    rating,
+    review_date,
+    review_text,
+    lower(replace(review_text, 'ё', 'е')) AS norm_text
+  FROM customer_reviews
+  WHERE review_date >= TIMESTAMP '2025-03-01 00:00:00'
+    AND rating BETWEEN 3 AND 5
+)
+SELECT
+  review_id,
+  product_id,
+  user_id,
+  rating,
+  review_date,
+  CASE
+    WHEN rating = 5
+      AND (
+        norm_text LIKE '%отлично%'
+        OR norm_text LIKE '%рекомендую%'
+        OR norm_text LIKE '%превосходно%'
+        OR norm_text LIKE '%удовлетворен%'
+      ) THEN 'Отличные'
+    WHEN rating = 4
+      AND (
+        norm_text LIKE '%хорошо%'
+        OR norm_text LIKE '%нравится%'
+        OR norm_text LIKE '%нормально%'
+      ) THEN 'Хорошие'
+    ELSE 'Средние'
+  END AS review_category,
+  char_length(review_text) AS review_length
+FROM filtered
+ORDER BY rating DESC, review_date ASC;

@@ -1,0 +1,55 @@
+WITH parsed AS (
+  SELECT
+    event_date,
+    user_id,
+    url,
+    lower(url) AS url_l,
+    (regexp_match(lower(url), '[\?&]dt=([^&]+)'))[1] AS dt_raw
+  FROM events
+),
+parsed_dt AS (
+  SELECT
+    event_date,
+    user_id,
+    url,
+    url_l,
+    dt_raw,
+    CASE
+      WHEN dt_raw ~ '^\d{4}-\d{2}-\d{2}' THEN (left(dt_raw,10))::date
+      ELSE NULL
+    END AS dt_date
+  FROM parsed
+),
+events_flagged AS (
+  SELECT
+    event_date,
+    user_id,
+    -- событие ботское, если в url явно type=bot или type=_, либо если dt присутствует и не равен event_date
+    ( url_l ~ '(^|[?&])type=(?:bot|_)(?:$|&)'
+      OR (dt_date IS NOT NULL AND dt_date <> event_date)
+    ) AS is_bot_event,
+    user_id AS uid,
+    event_date
+  FROM parsed_dt
+),
+user_bot AS (
+  -- пользователь считается ботом, если хоть раз был помечен bot во всех событиях
+  SELECT uid AS user_id, bool_or(is_bot_event) AS is_bot
+  FROM events_flagged
+  GROUP BY uid
+),
+users_december AS (
+  -- все уникальные пользователи с событиями в декабре (любой год)
+  SELECT DISTINCT user_id
+  FROM events
+  WHERE EXTRACT(MONTH FROM event_date) = 12
+),
+cnts AS (
+  SELECT
+    (SELECT COUNT(*) FROM users_december) AS total_users,
+    (SELECT COUNT(*) FROM users_december ud JOIN user_bot ub USING (user_id) WHERE ub.is_bot) AS bot_users
+)
+SELECT
+  -- доля (0..1), округлённая до 2 знаков и приведённая к виду с двумя знаками (например 0.80)
+  COALESCE( ROUND(bot_users::numeric / NULLIF(total_users,0), 2), 0.00 )::numeric(4,2) AS share
+FROM cnts;

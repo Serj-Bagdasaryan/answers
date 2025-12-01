@@ -1,0 +1,54 @@
+WITH joined AS (
+  SELECT
+    f.field_id,
+    f.crop,
+    f.region,
+    f.area_ha::numeric AS area_ha,
+    h.harvest_tons::numeric AS harvest_tons
+  FROM fields f
+  JOIN harvests h USING (field_id)
+),
+crop_region AS (
+  -- агрегаты по парам (crop, region) и средняя урожайность в регионе
+  SELECT
+    crop,
+    region,
+    SUM(harvest_tons) AS sum_harvest,
+    SUM(area_ha) AS sum_area,
+    SUM(harvest_tons) / SUM(area_ha) AS region_yield
+  FROM joined
+  GROUP BY crop, region
+),
+eligible_crops AS (
+  -- оставляем культуры, у которых во всех регионах region_yield > 2.0
+  SELECT crop
+  FROM crop_region
+  GROUP BY crop
+  HAVING MIN(region_yield) > 2.0
+),
+crop_totals AS (
+  -- агрегаты по культуре на уровне всех полей (всего по каждой культуре)
+  SELECT
+    j.crop,
+    COUNT(DISTINCT j.field_id) AS fields_count,
+    SUM(j.harvest_tons) AS total_harvest,
+    SUM(j.area_ha) AS total_area
+  FROM joined j
+  GROUP BY j.crop
+),
+grand_total AS (
+  -- общий урожай по всем культурам (здесь предполагается, что таблица содержит только зерновые,
+  -- или при необходимости в этом месте можно отфильтровать crop IN (...список зерновых...))
+  SELECT SUM(total_harvest) AS gt
+  FROM crop_totals
+)
+SELECT
+  ct.crop,
+  ct.fields_count,
+  ct.total_harvest,
+  ROUND(ct.total_harvest / ct.total_area, 2)::numeric(10,2) AS avg_yield_per_ha,
+  ROUND(ct.total_harvest * 100.0 / gt, 1)::numeric(10,1) AS share_of_total
+FROM crop_totals ct
+JOIN eligible_crops e USING (crop)
+CROSS JOIN grand_total
+ORDER BY ct.crop ASC;

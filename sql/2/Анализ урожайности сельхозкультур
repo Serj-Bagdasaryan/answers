@@ -1,0 +1,46 @@
+WITH regional_yields AS (
+    SELECT
+        f.crop,
+        f.region,
+        SUM(h.harvest_tons) / SUM(f.area_ha) AS reg_avg_yield
+    FROM
+        fields f
+    JOIN
+        harvests h ON f.field_id = h.field_id
+    GROUP BY
+        f.crop, f.region
+),
+qualified_crops AS (
+    SELECT
+        crop
+    FROM
+        regional_yields
+    GROUP BY
+        crop
+    HAVING
+        MIN(reg_avg_yield) > 2.0
+),
+total_harvest_all AS (
+    SELECT
+        SUM(harvest_tons) AS total_all
+    FROM
+        harvests
+)
+SELECT
+    f.crop,
+    COUNT(DISTINCT f.field_id) AS fields_count,
+    SUM(h.harvest_tons) AS total_harvest,
+    ROUND(SUM(h.harvest_tons) / SUM(f.area_ha), 2) AS avg_yield_per_ha,
+    ROUND((SUM(h.harvest_tons) / t.total_all * 100)::numeric, 1) AS share_of_total
+FROM
+    fields f
+JOIN
+    harvests h ON f.field_id = h.field_id
+CROSS JOIN
+    total_harvest_all t
+WHERE
+    f.crop IN (SELECT crop FROM qualified_crops)
+GROUP BY
+    f.crop, t.total_all
+ORDER BY
+    f.crop ASC;

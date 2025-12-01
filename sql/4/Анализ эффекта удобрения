@@ -1,0 +1,63 @@
+WITH ctrl AS (
+  SELECT
+    COUNT(*)::numeric AS n_c,
+    AVG(seeds_weight)::numeric AS mean_c,
+    STDDEV_SAMP(seeds_weight)::numeric AS sd_c
+  FROM sunflowers_control
+),
+t1 AS (
+  SELECT 1 AS type,
+         COUNT(*)::numeric AS n_t,
+         AVG(seeds_weight)::numeric AS mean_t,
+         STDDEV_SAMP(seeds_weight)::numeric AS sd_t
+  FROM sunflowers_test1
+),
+t2 AS (
+  SELECT 2 AS type,
+         COUNT(*)::numeric AS n_t,
+         AVG(seeds_weight)::numeric AS mean_t,
+         STDDEV_SAMP(seeds_weight)::numeric AS sd_t
+  FROM sunflowers_test2
+),
+t3 AS (
+  SELECT 3 AS type,
+         COUNT(*)::numeric AS n_t,
+         AVG(seeds_weight)::numeric AS mean_t,
+         STDDEV_SAMP(seeds_weight)::numeric AS sd_t
+  FROM sunflowers_test3
+),
+tests AS (
+  SELECT * FROM t1
+  UNION ALL
+  SELECT * FROM t2
+  UNION ALL
+  SELECT * FROM t3
+)
+SELECT
+  tt.type,
+  -- t-статистика, округлённая до 2 знаков
+  ROUND(
+    CASE WHEN calc.se IS NULL THEN NULL
+         ELSE (tt.mean_t - c.mean_c) / calc.se
+    END, 2
+  )::numeric(10,2) AS t_crit,
+  -- разница средних (тест - контроль), округлённая до 2 знаков
+  ROUND(tt.mean_t - c.mean_c, 2)::numeric(10,2) AS mean_diff,
+  -- строковый флаг в формате 'True'/'False' (в требуемом регистре)
+  CASE
+    WHEN calc.se IS NOT NULL AND ABS((tt.mean_t - c.mean_c) / calc.se) > 1.96 THEN 'True'
+    ELSE 'False'
+  END AS result
+FROM tests tt
+CROSS JOIN ctrl c
+CROSS JOIN LATERAL (
+  -- стандартная ошибка разности средних (NULL, если не вычисляется или равна 0)
+  SELECT NULLIF(
+           SQRT(
+             (POWER(tt.sd_t,2) / NULLIF(tt.n_t,0))
+             + (POWER(c.sd_c,2) / NULLIF(c.n_c,0))
+           ),
+           0
+         ) AS se
+) AS calc
+ORDER BY tt.type DESC;

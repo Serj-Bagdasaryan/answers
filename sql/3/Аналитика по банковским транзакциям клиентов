@@ -1,0 +1,58 @@
+WITH period AS (
+  SELECT DATE '2025-02-01' AS start_dt, DATE '2025-05-01' AS end_dt
+),
+tx_in_period AS (
+  -- все транзакции в рассматриваемом периоде (включая 2025-05-01)
+  SELECT *
+  FROM transactions t
+  CROSS JOIN period p
+  WHERE t.transaction_date >= p.start_dt
+    AND t.transaction_date <  p.end_dt + INTERVAL '1 day'
+),
+clients_with_counts AS (
+  -- клиенты с общим числом транзакций за период (> 3)
+  SELECT
+    client_id,
+    COUNT(*)::int AS txn_count
+  FROM tx_in_period
+  GROUP BY client_id
+  HAVING COUNT(*) > 3
+),
+purchases_agg AS (
+  -- суммы и число покупок для клиентов за период (только transaction_type = 'purchase')
+  SELECT
+    client_id,
+    COALESCE(SUM(amount), 0)::numeric AS total_purchase,
+    COUNT(*)::int AS purchase_count
+  FROM tx_in_period
+  WHERE transaction_type = 'purchase'
+  GROUP BY client_id
+),
+clients_agg AS (
+  -- объединяем: берем только клиентов с >3 транзакций, добавляем их purchase-агрегаты (0 если нет)
+  SELECT
+    c.client_id,
+    c.txn_count,
+    COALESCE(p.total_purchase, 0)::numeric AS total_purchase,
+    COALESCE(p.purchase_count, 0) AS purchase_count
+  FROM clients_with_counts c
+  LEFT JOIN purchases_agg p USING (client_id)
+),
+global_avg AS (
+  -- средняя total_purchase по всем клиентам, у которых txn_count > 3
+  SELECT AVG(total_purchase) AS avg_total_purchase
+  FROM clients_agg
+)
+-- итог: клиенты, у которых total_purchase > среднему по всем таким клиентам
+SELECT
+  ca.client_id,
+  ca.txn_count,
+  ca.total_purchase,
+  -- средняя сумма одной покупки (если покупок не было, даём 0.00), округляем до 2 знаков и сохраняем формат с двумя знаками
+  ROUND(
+    COALESCE(ca.total_purchase / NULLIF(ca.purchase_count, 0), 0)
+  , 2)::numeric(10,2) AS avg_purchase
+FROM clients_agg ca
+CROSS JOIN global_avg g
+WHERE ca.total_purchase > COALESCE(g.avg_total_purchase, 0)
+ORDER BY ca.total_purchase DESC, ca.client_id ASC;

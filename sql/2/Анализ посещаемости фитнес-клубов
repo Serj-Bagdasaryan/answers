@@ -1,0 +1,35 @@
+WITH user_visits AS (
+  -- для каждого пользователя и типа абонемента считаем число визитов (0, если визитов нет)
+  SELECT
+    m.membership_type,
+    m.user_id,
+    COUNT(v.visit_id) AS visits
+  FROM memberships m
+  LEFT JOIN visits v ON m.user_id = v.user_id
+  GROUP BY m.membership_type, m.user_id
+),
+agg AS (
+  -- агрегируем по типу абонемента
+  SELECT
+    membership_type,
+    COUNT(*) AS users_count,
+    COALESCE(SUM(visits), 0) AS total_visits
+  FROM user_visits
+  GROUP BY membership_type
+),
+total_users AS (
+  -- общее число пользователей (всех абонементов)
+  SELECT COUNT(DISTINCT user_id) AS tot
+  FROM memberships
+)
+SELECT
+  a.membership_type,
+  a.users_count,
+  a.total_visits,
+  -- среднее число визитов на пользователя, округлённое до 1 знака (в формате numeric с 1 знаком)
+  ROUND( COALESCE(a.total_visits::numeric / NULLIF(a.users_count,0), 0), 1 )::numeric(10,1) AS avg_visits_per_user,
+  -- доля пользователей типа в процентах от общего числа пользователей, округлённая до 1 знака
+  ROUND( a.users_count * 100.0 / tu.tot, 1 )::numeric(10,1) AS user_share
+FROM agg a
+CROSS JOIN total_users tu
+ORDER BY a.membership_type ASC;
